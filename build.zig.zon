@@ -1,0 +1,13 @@
+.{
+    .name = "zvox",
+    .version = "0.0.1",
+    .dependencies = .{},
+    .paths = .{
+        "src",
+        //"build.zig",
+        //"build.zig.zon",
+        //"src",
+        //"LICENSE",
+        //"README.md",
+    },
+}
