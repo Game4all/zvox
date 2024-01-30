@@ -18,7 +18,7 @@ pub const Voxel = extern struct {
 };
 
 /// The palette of the file encoded in RGBA hex format.
-const Palette = extern struct {
+pub const Palette = extern struct {
     colors: [256]u32,
 
     const DEFAULT_PALETTE: @This() = .{
