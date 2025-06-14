@@ -1,6 +1,7 @@
 .{
-    .name = "zvox",
-    .version = "0.0.1",
+    .name = .zvox,
+    .fingerprint = 0xc901056067334a94,
+    .version = "0.0.2",
     .dependencies = .{},
     .paths = .{
         "src",
