@@ -1,7 +1,8 @@
 .{
     .name = .zvox,
     .fingerprint = 0xc901056067334a94,
-    .version = "0.0.2",
+    .version = "0.0.3",
+    .minimum_zig_version = "0.15.1",
     .dependencies = .{},
     .paths = .{
         "src",

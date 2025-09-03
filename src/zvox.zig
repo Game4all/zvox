@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Reader = std.io.Reader;
 
 /// Size of a model in voxels.
 pub const ModelSize = extern struct {
@@ -77,22 +78,22 @@ pub const VoxFile = struct {
 
     //TODO: add support for MV new material chunks
 
-    pub fn from_reader(reader: anytype, allocator: Allocator) !VoxFile {
+    pub fn from_reader(reader: *Reader, allocator: Allocator) !VoxFile {
         var file: VoxFile = .{};
 
-        // Checking file header
-        const header = try reader.readBytesNoEof(4);
-        if (!std.mem.eql(u8, &header, "VOX "))
+        // Checking file header by taking the first 4 bytes
+        const header = try reader.take(4);
+        if (!std.mem.eql(u8, header, "VOX "))
             return error.VoxFileInvalidHeader;
 
-        // Checking file version
-        const format_ver = try reader.readInt(u32, std.builtin.Endian.little);
+        // Getting file version by peeking the next int
+        const format_ver = try reader.takeInt(u32, .little);
         file.format_version = format_ver;
 
         var current_model: usize = 0;
 
-        var models = std.ArrayList(Model).init(allocator);
-        errdefer models.deinit();
+        var models: std.ArrayList(Model) = try .initCapacity(allocator, 1);
+        errdefer models.deinit(allocator);
         errdefer for (models.items) |model| {
             model.deinit(allocator);
         };
@@ -104,7 +105,7 @@ pub const VoxFile = struct {
             };
         }
 
-        file.models = try models.toOwnedSlice();
+        file.models = try models.toOwnedSlice(allocator);
         return file;
     }
 
@@ -116,51 +117,56 @@ pub const VoxFile = struct {
     }
 };
 
+/// Struct for a chunk header
 const ChunkHeader = extern struct {
     id: [4]u8,
     content_size: u32,
     children_size: u32,
 };
 
-fn read_chunk(reader: anytype, file: *VoxFile, models: *std.ArrayList(Model), current_model: *usize, alloc: Allocator) !void {
-    const chunk_header = try reader.readStruct(ChunkHeader);
+fn read_chunk(reader: *Reader, file: *VoxFile, models: *std.ArrayList(Model), current_model: *usize, alloc: Allocator) !void {
+    const chunk_header = try reader.takeStruct(ChunkHeader, .little);
 
     if (std.mem.eql(u8, &chunk_header.id, "MAIN")) {
         return;
     } else if (std.mem.eql(u8, &chunk_header.id, "SIZE")) {
-        const size = try reader.readStruct(ModelSize);
-        try models.append(Model{ .size = size });
+        const size = try reader.takeStruct(ModelSize, .little);
+        try models.append(alloc, Model{ .size = size });
     } else if (std.mem.eql(u8, &chunk_header.id, "XYZI")) {
-        const num_voxels = try reader.readInt(u32, std.builtin.Endian.little);
+        const num_voxels = try reader.takeInt(u32, std.builtin.Endian.little);
 
-        var voxels = try std.ArrayList(Voxel).initCapacity(alloc, @intCast(num_voxels));
-        errdefer voxels.deinit();
+        const voxels: []Voxel = try alloc.alloc(Voxel, @intCast(num_voxels));
+        errdefer alloc.free(voxels);
 
-        for (0..num_voxels) |_| {
-            const voxel = try reader.readStruct(Voxel);
-            try voxels.append(voxel);
+        for (voxels) |*voxel| {
+            voxel.* = try reader.takeStruct(Voxel, .little);
         }
 
-        models.items[current_model.*].voxels = try voxels.toOwnedSlice();
+        models.items[current_model.*].voxels = voxels;
         current_model.* += 1;
     } else if (std.mem.eql(u8, &chunk_header.id, "RGBA")) {
-        const palette = try reader.readStruct(Palette);
+        const palette = try reader.takeStruct(Palette, .little);
         file.palette = palette;
     } else {
-        try reader.skipBytes(chunk_header.content_size, .{});
+        try reader.discardAll(chunk_header.content_size);
     }
 }
 
 test "Loading a basic model" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     const alloc = gpa.allocator();
     defer _ = gpa.deinit();
+
+    // allocate a buffer for the file content reader
+    const reader_buffer = try alloc.alloc(u8, 2048);
+    defer alloc.free(reader_buffer);
 
     const file = try std.fs.cwd().openFile("testing/chicken.vox", .{ .mode = .read_only });
     defer file.close();
 
-    const reader = file.reader();
-    const voxfile = try VoxFile.from_reader(reader, alloc);
+    var reader = file.reader(reader_buffer);
+
+    const voxfile = try VoxFile.from_reader(&reader.interface, alloc);
     defer voxfile.deinit(alloc);
 
     try std.testing.expect(voxfile.models.len == 1);
@@ -179,15 +185,20 @@ test "Loading a basic model" {
 }
 
 test "Loading a multi model file" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     const alloc = gpa.allocator();
     defer _ = gpa.deinit();
+
+    // allocate a buffer for the file content reader
+    const reader_buffer = try alloc.alloc(u8, 2048);
+    defer alloc.free(reader_buffer);
 
     const file = try std.fs.cwd().openFile("testing/multi_model.vox", .{ .mode = .read_only });
     defer file.close();
 
-    const reader = file.reader();
-    const voxfile = try VoxFile.from_reader(reader, alloc);
+    var reader = file.reader(reader_buffer);
+
+    const voxfile = try VoxFile.from_reader(&reader.interface, alloc);
     defer voxfile.deinit(alloc);
 
     try std.testing.expect(voxfile.models.len == 2);

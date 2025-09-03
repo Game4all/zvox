@@ -9,12 +9,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .root_source_file = b.path("src/zvox.zig"),
     });
-    _ = zvox_module;
 
     const tests = b.addTest(.{
-        .root_source_file = b.path("src/zvox.zig"),
-        .optimize = optimize,
-        .target = target,
+        .name = "zvox_test",
+        .root_module = zvox_module,
+        .emit_object = true,
     });
     const test_run_step = b.addRunArtifact(tests);
 
