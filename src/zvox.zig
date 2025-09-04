@@ -65,8 +65,13 @@ pub const Model = struct {
     size: ModelSize,
     voxels: []Voxel = &[_]Voxel{},
 
-    pub fn deinit(self: *const @This(), allocator: Allocator) void {
+    pub inline fn deinit(self: *const @This(), allocator: Allocator) void {
         allocator.free(self.voxels);
+    }
+
+    /// Creates a copy of the voxel model data using the specified allocator.
+    pub fn clone(self: *const @This(), alloc: Allocator) !@This() {
+        return .{ .size = self.size, .voxels = alloc.dupe(Voxel, self.voxels) };
     }
 };
 
